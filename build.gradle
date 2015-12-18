@@ -5,7 +5,7 @@ import groovy.json.JsonBuilder
 ext {
 	liferayHome="${project.rootDir}/../bundles"
 	appServerDir="${liferayHome}/tomcat-7.0.62"
-	deployDir="${liferayHome}/deploy"
+	deployDir="${liferayHome}/osgi/modules"
 }
 
 buildscript {
@@ -23,6 +23,57 @@ buildscript {
 	}
 }
 
+repositories {
+	mavenLocal()
+
+	maven {
+		url "http://cdn.repository.liferay.com/nexus/content/groups/public"
+	}
+
+	maven {
+		url "http://106.187.96.36/gamerson/liferay-workspace-repo/"
+	}
+}
+
+configurations {
+	bundle
+}
+
+
+dependencies {
+	bundle group: "com.liferay", name: "portal-tomcat-bundle", version: "7.0-ce-a5-20151209121227541"
+}
+
+
+task buildBundle(dependsOn: [configurations.bundle]) << {
+	def unzipDir = new File("${rootDir}/build/bundleTmp/")
+
+	copy {
+		configurations.bundle.asFileTree.each {
+			from( zipTree(it) )
+		}
+		into unzipDir
+	}
+
+	copy {
+		from unzipDir.listFiles()[0]
+		into file("${rootDir}/build/bundle/")
+	}
+
+	delete unzipDir
+
+	copy {
+		from file("${rootDir}/build/dist/")
+		into file("${rootDir}/build/bundle/deploy/")
+	}
+}
+
+task dist(type: Zip, dependsOn: 'buildBundle') {
+	from file("${rootDir}/build/bundle")
+	destinationDir file("${rootDir}/build/distBundle")
+	archiveName "bundle.zip"
+}
+
 configure(subprojects.findAll {FileUtil.exists(it, "bnd.bnd")}) {
 	repositories {
 		maven {
@@ -31,6 +82,13 @@ configure(subprojects.findAll {FileUtil.exists(it, "bnd.bnd")}) {
 	}
 
 	apply plugin: "com.liferay.plugin"
+
+	jar << {
+		copy {
+			from jar.archivePath
+			into "${rootDir}/build/dist"
+		}
+	}
 }
 
 configure(subprojects.findAll {FileUtil.exists(it, "gulpfile.js")}) {
@@ -43,7 +101,14 @@ configure(subprojects.findAll {FileUtil.exists(it, "gulpfile.js")}) {
 		dependsOn createLiferayThemeJson
 	}
 
-	task build(dependsOn: 'gulpBuild')
+	task build(type: Copy, dependsOn: 'gulpBuild') {
+		from 'dist'
+		into "${rootDir}/build/dist"
+	}
+
+	task clean(type: Delete) {
+		delete buildDir, 'dist', 'node_modules'
+	}
 
 	task createLiferayThemeJson {
 		File liferayThemeJsonFile = file("liferay-theme.json")
@@ -76,9 +141,9 @@ if (pluginsSdk.exists()) {
 	configure(project(':plugins-sdk')) {
 		ant.importBuild 'build.xml'
 
-		task build(type: Copy, dependsOn: 'war') << {
+		task build(type: Copy, dependsOn: 'war') {
 			from 'dist'
-			into "build/distributions"
+			into "${rootDir}/build/dist"
 		}
 	}
 }
